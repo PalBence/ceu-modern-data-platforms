@@ -719,4 +719,130 @@ snapshots:
 </details>
 
 ## Tests
+### Data Tests
+### Generic Data Tests
+The contents of `models/schema.yml`:
 
+```yaml
+models:
+  - name: dim_listings_cleansed
+    columns:
+
+     - name: listing_id
+       data_tests:
+         - unique
+         - not_null
+
+     - name: host_id
+       data_tests:
+         - not_null
+         - relationships:
+             arguments:
+               to: ref('dim_hosts_cleansed')
+               field: host_id
+
+     - name: room_type
+       data_tests:
+         - accepted_values:
+             arguments:
+               values: ['Entire home/apt',
+                        'Private room',
+                        'Shared room',
+                        'Hotel room']
+```
+
+### Singular Data Tests
+#### Singular test for minimum nights check
+The contents of `tests/dim_listings_minimum_nights.sql`:
+
+```sql
+SELECT
+    *
+FROM
+    {{ ref('dim_listings_cleansed') }}
+WHERE minimum_nights < 1
+LIMIT 10
+```
+
+#### Restricting test execution to a specific test
+```sh
+dbt test -s dim_listings_minimum_nights
+```
+
+### Unit Tests
+Add this to `models/mart/unit_tests.yml`:
+```yml
+unit_tests:
+  - name: unittest_fullmoon_matcher
+    model: mart_fullmoon_reviews
+    given:
+      - input: ref('fct_reviews')
+        rows:
+          - {review_date: '2025-01-13'}
+          - {review_date: '2025-01-14'}
+          - {review_date: '2025-01-15'}
+      - input: ref('seed_full_moon_dates')
+        rows:
+          - {full_moon_date: '2025-01-14'}
+    expect:
+      rows:
+        - {review_date: '2025-01-13', is_full_moon: "not full moon"}
+        - {review_date: '2025-01-14', is_full_moon: "not full moon"}
+        - {review_date: '2025-01-15', is_full_moon: "full moon"}
+```
+
+### Restricting test execution to tests associated with a specific model
+```sh
+dbt test -s mart_fullmoon_reviews
+```
+
+      - name: reviews
+        identifier: raw_reviews
+        columns:
+          - name: sentiment
+            tests:
+              - not_null:
+                  config:
+                    severity: warn
+
+### Setting Severity
+Let's test if the sentiment is not null in our sources, but we don't want to the test to fail 
+the whole test workflow, only to give a warning.
+
+_Add the sentiment column definition to `models/sources.yml`:
+```
+sources:
+  - name: airbnb
+    schema: raw
+    tables:
+      - name: listings
+        identifier: raw_listings
+      - name: hosts
+        identifier: raw_hosts
+      - name: reviews
+        identifier: raw_reviews
+        columns:
+          - name: sentiment
+            tests:
+              - not_null:
+                  config:
+                    severity: warn
+        config:
+          loaded_at_field: date
+          freshness:
+            warn_after: {count: 1, period: minute}
+```
+
+Execute `dbt test -s 'source:airbnb.reviews'` to run the test only on this column
+
+### Storing Test Failures:
+Add this to your `dbt_project.yml`:
+
+```
+data_tests:
+  +store_failures: true
+  +schema: _test_failures
+```
+
+### Taking Testing in Production
+Here is the link to [Elementary Data](https://www.elementary-data.com/) if you want to take testing to the next level.
